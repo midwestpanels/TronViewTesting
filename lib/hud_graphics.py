@@ -4,11 +4,22 @@ import math, os, sys, random, platform
 import argparse, pygame
 from operator import add
 from . import hud_utils
+from lib.common import shared
 
 #############################################
 ## Function: initDisplay
-def initDisplay(debug):
+def initDisplay(debug=False):
+    print("initDisplay")
     pygame.init()
+    pygame.joystick.init()
+    try :
+        # set the window icon
+        icon = pygame.image.load("lib/common/assets/tronview_logo1.png")
+        pygame.display.set_icon(icon)
+        pygame.display.set_caption('TronView')
+    except:
+        print("Error: could not set window icon")
+
     disp_no = os.getenv("DISPLAY")
     print(("sys.platform:%s"%(sys.platform)))
     print(("platform.machine:%s"%(platform.machine())))
@@ -32,7 +43,6 @@ def initDisplay(debug):
         print(("default to XDisplay {0}".format(disp_no)))
         if showFullScreen == False:
             screen = pygame.display.set_mode(size)
-            pygame.display.set_caption('efis')
         else:
             # Go full screen with no frame.
             size = pygame.display.Info().current_w, pygame.display.Info().current_h
@@ -58,17 +68,31 @@ def initDisplay(debug):
         # check if we want to show fullscreen or window.
         if showFullScreen == False:
             screen = pygame.display.set_mode(size, pygame.RESIZABLE)
-            pygame.display.set_caption('efis')
         else:
             # else go full screen.
             size = pygame.display.Info().current_w, pygame.display.Info().current_h
             screen = pygame.display.set_mode(size, pygame.FULLSCREEN)
+
 
     showMouse = hud_utils.readConfig("Main", "ShowMouse", "false")  # default screen to load
     if showMouse != "false":
         pygame.mouse.set_visible(True)  # show
     else:
         pygame.mouse.set_visible(False)  # hide the mouse
+
+    shared.pygamescreen = screen  # save to shared for easy access
+
+    shared.smartdisplay.setPyGameScreen(screen)
+    drawableAreaString = hud_utils.readConfig("Main", "drawable_area", "")
+    if len(drawableAreaString)>0:
+        print(("Found drawable area: %s"%(drawableAreaString)))
+        area = drawableAreaString.split(",")
+        try:
+            shared.smartdisplay.setDrawableArea(int(area[0]),int(area[1]),int(area[2]),int(area[3]))  
+        except AttributeError:
+            print("No drawable function to set")
+    else:
+        shared.smartdisplay.setDrawableArea(0,0,size[0],size[1]) # else set full screen as drawable area.
 
     return screen, size
 

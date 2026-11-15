@@ -13,25 +13,22 @@ import time
 
 class serial_flyonspeed2efisdata(Input):
     def __init__(self):
-        self.name = "FlyOnSpeed2EfisOut"
+        self.name = "serial_flyonspeed2efisdata"
         self.version = 1.0
         self.inputtype = "serial"
 
     def initInput(self,num,aircraft):
-        Input.initInput( self,num,s aircraft )  # call parent init Input.
+        Input.initInput( self,num, aircraft )  # call parent init Input.
         
-        if(aircraft.inputs[self.inputNum].PlayFile!=None):
-            if aircraft.inputs[self.inputNum].PlayFile==True:
+        if(self.PlayFile!=None and self.PlayFile!=False):
+            if self.PlayFile==True:
                 defaultTo = "flyonspeed2efisdata_data1.csv"
-                aircraft.inputs[self.inputNum].PlayFile = hud_utils.readConfig(self.name, "playback_file", defaultTo)
-            self.ser,self.input_logFileName = Input.openLogFile(self,aircraft.inputs[self.inputNum].PlayFile,"r")
+                self.PlayFile = hud_utils.readConfig(self.name, "playback_file", defaultTo)
+            self.ser,self.input_logFileName = Input.openLogFile(self,self.PlayFile,"r")
             self.isPlaybackMode = True
         else:
-            self.efis_data_format = hud_utils.readConfig("DataInput", "format", "none")
-            self.efis_data_port = hud_utils.readConfig("DataInput", "port", "/dev/ttyS0")
-            self.efis_data_baudrate = hud_utils.readConfigInt(
-                "DataInput", "baudrate", 115200
-            )
+            self.efis_data_port = hud_utils.readConfig(self.name, "port", "/dev/ttyS0")
+            self.efis_data_baudrate = hud_utils.readConfigInt( self.name, "baudrate", 115200 )
 
             # open serial connection.
             self.ser = serial.Serial(

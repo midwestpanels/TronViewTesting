@@ -10,9 +10,11 @@ from lib import hud_utils
 from lib import smartdisplay
 import pygame
 import math
+from lib.common import shared
+from lib.common.dataship.dataship import Dataship
+from lib.common.dataship.dataship_imu import IMUData
 
-
-class RollIndicator(Module):
+class rollindicator(Module):
     # called only when object is first created.
     def __init__(self):
         Module.__init__(self)
@@ -20,9 +22,14 @@ class RollIndicator(Module):
         self.hsi_size = 360
         self.roll_point_size = 20
         self.x_offset = 0
+        self.IMUData = IMUData()
 
     # called once for setup
-    def initMod(self, pygamescreen, width, height):
+    def initMod(self, pygamescreen, width=None, height=None):
+        if width is None:
+            width = 500 # default width
+        if height is None:
+            height = 500 # default height
         Module.initMod(
             self, pygamescreen, width, height
         )  # call parent init screen.
@@ -103,21 +110,40 @@ class RollIndicator(Module):
             y1 = roint(self.hsi_size / 2 + self.hsi_size / 2.1 * sin)
             pygame.draw.line(self.roll_tick, (255, 255, 255), [x0, y0], [x1, y1], 4)
 
+        if len(shared.Dataship.imuData) > 0:
+            self.IMUData = shared.Dataship.imuData[0]
+        else:
+            self.IMUData = IMUData()
 
     # called every redraw for the mod
-    def draw(self, aircraft, smartdisplay):
-        # draw roll indicator
-        smartdisplay.pygamescreen.blit(
-            self.roll_tick, (smartdisplay.width / 2 - 180 + self.x_offset, smartdisplay.y_center - 180)
-        )
+    def draw(self, dataship: Dataship, smartdisplay, pos=(None, None)):
 
-        roll_point_rotated = pygame.transform.rotate(self.roll_point, aircraft.roll)
+        x_pos = 0
+        y_pos = 0
+
+        # Calculate center positions
+        x_center = self.width // 2
+        y_center = self.height // 2
+
+        # Determine draw position
+        if pos[0] is not None and pos[1] is not None:
+            draw_pos = (pos[0], pos[1])
+            x_center = pos[0]
+            y_center = pos[1]
+        else:
+            draw_pos = (x_center - 180, y_center - 180)
+
+        # Draw roll ticks
+        smartdisplay.pygamescreen.blit(self.roll_tick, draw_pos)
+
+        # Draw roll point
+        roll_point_rotated = pygame.transform.rotate(self.roll_point, self.IMUData.roll)
         roll_point_rect = roll_point_rotated.get_rect()
         smartdisplay.pygamescreen.blit(
             roll_point_rotated,
             (
-                smartdisplay.x_center - roll_point_rect.center[0] + self.x_offset,
-                smartdisplay.y_center - roll_point_rect.center[1],
+                x_center - roll_point_rect.center[0],
+                y_center - roll_point_rect.center[1],
             ),
         )
 
@@ -131,6 +157,26 @@ class RollIndicator(Module):
     # handle key events
     def processEvent(self, event):
         print("processEvent")
+    
+    def get_module_options(self):
+        return {
+            "roll_point_size": {
+                "type": "int",
+                "default": self.roll_point_size,
+                "min": 10,
+                "max": 50,
+                "label": "Roll Point Size",
+                "description": "Size of the roll point.",
+                "post_change_function": "update_roll_point_size"
+            }
+        }
+    
+    def update_roll_point_size(self):
+        self.roll_point_scaled = pygame.transform.scale(
+            self.roll_point, (self.roll_point_size, self.roll_point_size)
+        )
+        self.roll_point_scaled_rect = self.roll_point_scaled.get_rect()
+    
 
 
 # vi: modeline tabstop=8 expandtab shiftwidth=4 softtabstop=4 syntax=python

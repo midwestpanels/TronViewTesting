@@ -2,36 +2,72 @@
 
 #################################################
 # Module: HSI
-# Topher 2021.
+# Topher 2024 re-write.
 # Adapted from hsi code by Brian Chesteen.
 
 from lib.modules._module import Module
 from lib import hud_graphics
 from lib import hud_utils
 from lib import smartdisplay
-from lib import aircraft
+from lib.common.dataship.dataship import Dataship
+from lib.common.dataship.dataship_imu import IMUData
+from lib.common.dataship.dataship_air import AirData
+from lib.common.dataship.dataship_gps import GPSData
 import pygame
 import math
+from lib.common import shared
+import pygame.gfxdraw
 
 
-class HSI(Module):
+
+class hsi(Module):
     # called only when object is first created.
     def __init__(self):
         Module.__init__(self)
         self.name = "HSI"  # set name
         self.x_offset = 0
+        self.label_positions = {}
+        self.old_hsi_hdg = None
+        self.current_heading = None  # Initialize as None for first update
+        self.smoothing_factor = 0.15  # Default smoothing (0 = no smoothing, 1 = no movement)
 
+        self.imuData = IMUData()
+        self.airData = AirData()
+        self.gpsData = GPSData()
     # called once for setup
-    def initMod(self, pygamescreen, width, height):
+    def initMod(self, pygamescreen, width=None, height=None):
+        if width is None:
+            width = 500 # default width
+        if height is None:
+            height = 500 # default height
         Module.initMod(
             self, pygamescreen, width, height
         )  # call parent init screen.
-        print(("Init Mod: %s %dx%d"%(self.name,self.width,self.height)))
+        if shared.Dataship.debug_mode > 0:
+            print(("Init Mod: %s %dx%d"%(self.name,self.width,self.height)))
 
-        self.myfont1 = pygame.font.SysFont("Comic Sans MS", 30, bold=True)  # hsi font
+        self.myfont1 = pygame.font.SysFont("arial", 30, bold=False)  # hsi font
         self.MainColor = (0, 255, 0)  # main color 
 
-    def setup(self, hsi_size, gnd_trk_tick_size, rose_color, label_color):
+        self.imuData = IMUData()
+        self.airData = AirData()
+        self.gpsData = GPSData()
+        if len(shared.Dataship.imuData) > 0:
+            self.imuData = shared.Dataship.imuData[0]
+        if len(shared.Dataship.airData) > 0:
+            self.airData = shared.Dataship.airData[0]
+        if len(shared.Dataship.gpsData) > 0:
+            self.gpsData = shared.Dataship.gpsData[0]
+
+    # setup must have default values for all parameters
+    def setup(self, hsi_size = -1 , gnd_trk_tick_size = -1, rose_color = (70,130,40), label_color = (255, 255, 0), smoothing_factor = 0.15):
+        #print("HSI setup() %d %d %s %s" % (hsi_size, gnd_trk_tick_size, rose_color, label_color))
+        if(hsi_size == -1):
+            hsi_size = self.width
+        if(gnd_trk_tick_size == -1):
+            gnd_trk_tick_size = self.width / 10
+
+        self.smoothing_factor = max(0.0, min(1.0, smoothing_factor))  # Clamp between 0 and 1
 
         # HSI Setup
         self.hsi_size = hsi_size
@@ -49,10 +85,10 @@ class HSI(Module):
         for little_tick in range(72):
             cos = math.cos(math.radians(360.0 / 72 * little_tick))
             sin = math.sin(math.radians(360.0 / 72 * little_tick))
-            x0 = roint(self.hsi_size / 2 + self.hsi_size / 13 * cos * 4)
-            y0 = roint(self.hsi_size / 2 + self.hsi_size / 13 * sin * 4)
-            x1 = roint(self.hsi_size / 2 + self.hsi_size / 3 * cos)
-            y1 = roint(self.hsi_size / 2 + self.hsi_size / 3 * sin)
+            x0 = self.roint(self.hsi_size / 2 + self.hsi_size / 13 * cos * 4)
+            y0 = self.roint(self.hsi_size / 2 + self.hsi_size / 13 * sin * 4)
+            x1 = self.roint(self.hsi_size / 2 + self.hsi_size / 3 * cos)
+            y1 = self.roint(self.hsi_size / 2 + self.hsi_size / 3 * sin)
             pygame.draw.line(self.rose, self.color, [x0, y0], [x1, y1], 4)
 
         # Setup Compass Rose
@@ -60,10 +96,10 @@ class HSI(Module):
         for big_tick in range(36):
             cos = math.cos(math.radians(360.0 / 36 * big_tick))
             sin = math.sin(math.radians(360.0 / 36 * big_tick))
-            x0 = roint(self.hsi_size / 2 + self.hsi_size / 15 * cos * 4)
-            y0 = roint(self.hsi_size / 2 + self.hsi_size / 15 * sin * 4)
-            x1 = roint(self.hsi_size / 2 + self.hsi_size / 2.8 * cos)
-            y1 = roint(self.hsi_size / 2 + self.hsi_size / 2.8 * sin)
+            x0 = self.roint(self.hsi_size / 2 + self.hsi_size / 15 * cos * 4)
+            y0 = self.roint(self.hsi_size / 2 + self.hsi_size / 15 * sin * 4)
+            x1 = self.roint(self.hsi_size / 2 + self.hsi_size / 2.8 * cos)
+            y1 = self.roint(self.hsi_size / 2 + self.hsi_size / 2.8 * sin)
             pygame.draw.line(self.rose, self.color, [x0, y0], [x1, y1], 4)
 
         # Setup Labels
@@ -93,7 +129,7 @@ class HSI(Module):
         self.R33_rect = self.R33.get_rect()
 
         # Setup Ground Track Tick
-        self.gnd_trk_tick = pygame.image.load("lib/modules/hud/hsi/tick_m.png").convert()
+        self.gnd_trk_tick = pygame.image.load("lib/modules/hud/hsi/tick_m.jpg").convert()
         self.gnd_trk_tick.set_colorkey((255, 255, 255))
         self.gnd_trk_tick_scaled = pygame.transform.scale(
             self.gnd_trk_tick, (self.gnd_trk_tick_size, self.gnd_trk_tick_size)
@@ -109,69 +145,50 @@ class HSI(Module):
             ),
         )
 
+        self.label_data = [
+            ("N", 0), ("3", 30), ("6", 60), ("E", 90),
+            ("12", 120), ("15", 150), ("S", 180), ("21", 210),
+            ("24", 240), ("W", 270), ("30", 300), ("33", 330)
+        ]
+        
+        for label, angle in self.label_data:
+            rendered_label = self.myfont1.render(label, False, self.label_color)
+            setattr(self, f"{label}_label", rendered_label)
+            setattr(self, f"{label}_rect", rendered_label.get_rect())
+
+        self.heading_indicator = pygame.Surface((self.hsi_size, self.hsi_size), pygame.SRCALPHA)
+        self.draw_heading_indicator()
+
     def roint(self,num):
         return int(round(num))
 
-    # Create HSI label coordinates
-    def labeler(self, hsi_hdg):
-        self.labels.fill(pygame.SRCALPHA)
-        for label in range(360):
-            cos = math.cos(math.radians(label))
-            sin = math.sin(math.radians(label))
-            y = roint(self.hsi_size / 2 + self.hsi_size / 2.5 * cos)
-            x = roint(self.hsi_size / 2 + self.hsi_size / 2.5 * sin)
+    def calculate_label_position(self, angle, hsi_hdg):
+        label_angle = (angle - hsi_hdg + 360) % 360
+        radius = self.hsi_size / 2.5
+        x = self.roint(self.hsi_size / 2 + radius * math.sin(math.radians(label_angle)))
+        y = self.roint(self.hsi_size / 2 - radius * math.cos(math.radians(label_angle)))
+        return x, y
 
-            if label == hsi_hdg:
-                self.labels.blit(
-                    self.E, (x - self.E_rect.center[0], y - self.E_rect.center[1])
-                )
-            if label == (hsi_hdg + 330) % 360:
-                self.labels.blit(
-                    self.R12, (x - self.R12_rect.center[0], y - self.R12_rect.center[1])
-                )
-            if label == (hsi_hdg + 300) % 360:
-                self.labels.blit(
-                    self.R15, (x - self.R15_rect.center[0], y - self.R15_rect.center[1])
-                )
-            if label == (hsi_hdg + 270) % 360:
-                self.labels.blit(
-                    self.S, (x - self.S_rect.center[0], y - self.S_rect.center[1])
-                )
-            if label == (hsi_hdg + 240) % 360:
-                self.labels.blit(
-                    self.R21, (x - self.R21_rect.center[0], y - self.R21_rect.center[1])
-                )
-            if label == (hsi_hdg + 210) % 360:
-                self.labels.blit(
-                    self.R24, (x - self.R24_rect.center[0], y - self.R24_rect.center[1])
-                )
-            if label == (hsi_hdg + 180) % 360:
-                self.labels.blit(
-                    self.W, (x - self.W_rect.center[0], y - self.W_rect.center[1])
-                )
-            if label == (hsi_hdg + 150) % 360:
-                self.labels.blit(
-                    self.R30, (x - self.R30_rect.center[0], y - self.R30_rect.center[1])
-                )
-            if label == (hsi_hdg + 120) % 360:
-                self.labels.blit(
-                    self.R33, (x - self.R33_rect.center[0], y - self.R33_rect.center[1])
-                )
-            if label == (hsi_hdg + 90) % 360:
-                self.labels.blit(
-                    self.N, (x - self.N_rect.center[0], y - self.N_rect.center[1])
-                )
-            if label == (hsi_hdg + 60) % 360:
-                self.labels.blit(
-                    self.R3, (x - self.R3_rect.center[0], y - self.R3_rect.center[1])
-                )
-            if label == (hsi_hdg + 30) % 360:
-                self.labels.blit(
-                    self.R6, (x - self.R6_rect.center[0], y - self.R6_rect.center[1])
-                )
+    def labeler(self, hsi_hdg):
+        if self.old_hsi_hdg == hsi_hdg:
+            #print(f"Skipping label update, heading unchanged: {hsi_hdg}")
+            return  # No need to update if heading hasn't changed
+
+        #print(f"Updating labels for heading: {hsi_hdg}")
+        self.labels.fill((0,0,0,0))
+        for label, angle in self.label_data:
+            x, y = self.calculate_label_position(angle, hsi_hdg)
+            rendered_label = getattr(self, f"{label}_label")
+            label_rect = getattr(self, f"{label}_rect")
+            self.labels.blit(
+                rendered_label,
+                (x - label_rect.center[0], y - label_rect.center[1])
+            )
+
+        self.old_hsi_hdg = hsi_hdg
 
     def gnd_trk_tick(self, smartdisplay, gnd_trk):
-        # Draw Ground Track Tick
+        #Draw Ground Track Tick
         gnd_trk_tick_rotated = pygame.transform.rotate(self.ticks, gnd_trk)
         gnd_trk__rect = gnd_trk_tick_rotated.get_rect()
         self.pygamescreen.blit(
@@ -181,99 +198,165 @@ class HSI(Module):
                 smartdisplay.y_center - gnd_trk__rect.center[1],
             ),
         )
+        pass
 
 
-    def turn_rate_disp(self, smartdisplay,turn_rate):
+    def turn_rate_disp(self, smartdisplay,turn_rate, pos=(None, None)):
+        if pos[0] is not None:
+            draw_x = pos[0] + self.width / 2
+        else:
+            draw_x = smartdisplay.x_center
+        if pos[1] is not None:
+            draw_y = pos[1] + self.height / 2
+        else:
+            draw_y = smartdisplay.y_center
         if abs(turn_rate) > 0.2:
             pygame.draw.line(
                 self.pygamescreen,
                 (255, 0, 255),
-                (smartdisplay.x_center, smartdisplay.y_center - 158),
-                (smartdisplay.x_center + (turn_rate * 10), smartdisplay.y_center - 158),
+                (draw_x, draw_y - 158),
+                (draw_x + (turn_rate * 10), draw_y - 158),
                 10,
             )
         pygame.draw.line(
             self.pygamescreen,
             (255, 255, 255),
-            (smartdisplay.x_center + 31, smartdisplay.y_center - 153),
-            (smartdisplay.x_center + 31, smartdisplay.y_center - 163),
+            (draw_x + 31, draw_y - 153),
+            (draw_x + 31, draw_y - 163),
             3,
         )
         pygame.draw.line(
             self.pygamescreen,
             (255, 255, 255),
-            (smartdisplay.x_center - 31, smartdisplay.y_center - 153),
-            (smartdisplay.x_center - 31, smartdisplay.y_center - 163),
+            (draw_x - 31, draw_y - 153),
+            (draw_x - 31, draw_y - 163),
             3,
         )
         pygame.draw.line(
             self.pygamescreen,
             (0, 0, 0),
-            (smartdisplay.x_center + 33, smartdisplay.y_center - 153),
-            (smartdisplay.x_center + 33, smartdisplay.y_center - 163),
+            (draw_x + 33, draw_y - 153),
+            (draw_x + 33, draw_y - 163),
             1,
         )
         pygame.draw.line(
             self.pygamescreen,
             (0, 0, 0),
-            (smartdisplay.x_center + 29, smartdisplay.y_center - 153),
-            (smartdisplay.x_center + 29, smartdisplay.y_center - 163),
+            (draw_x + 29, draw_y - 153),
+            (draw_x + 29, draw_y - 163),
             1,
         )
         pygame.draw.line(
             self.pygamescreen,
             (0, 0, 0),
-            (smartdisplay.x_center - 33, smartdisplay.y_center - 153),
-            (smartdisplay.x_center - 33, smartdisplay.y_center - 163),
+            (draw_x - 33, draw_y - 153),
+            (draw_x - 33, draw_y - 163),
             1,
         )
         pygame.draw.line(
             self.pygamescreen,
             (0, 0, 0),
-            (smartdisplay.x_center - 29, smartdisplay.y_center - 153),
-            (smartdisplay.x_center - 29, smartdisplay.y_center - 163),
+            (draw_x - 29, draw_y - 153),
+            (draw_x - 29, draw_y - 163),
             1,
         )
 
+    def draw_heading_indicator(self):
+        triangle_height = self.hsi_size / 20
+        triangle_width = triangle_height * 0.8
+        
+        points = [
+            (self.hsi_size / 2, self.hsi_size / 2 - self.hsi_size / 3),
+            (self.hsi_size / 2 - triangle_width / 2, self.hsi_size / 2 - self.hsi_size / 3 + triangle_height),
+            (self.hsi_size / 2 + triangle_width / 2, self.hsi_size / 2 - self.hsi_size / 3 + triangle_height)
+        ]
+        
+        pygame.gfxdraw.filled_trigon(self.heading_indicator, 
+                                     int(points[0][0]), int(points[0][1]),
+                                     int(points[1][0]), int(points[1][1]),
+                                     int(points[2][0]), int(points[2][1]),
+                                     self.label_color)
+        pygame.gfxdraw.aatrigon(self.heading_indicator,
+                                int(points[0][0]), int(points[0][1]),
+                                int(points[1][0]), int(points[1][1]),
+                                int(points[2][0]), int(points[2][1]),
+                                self.label_color)
+
+    def smooth_value(self, current, target, smoothing):
+        if current is None:
+            return target
+        # Calculate the shortest angular distance
+        diff = ((target - current + 180) % 360) - 180
+        # Apply smoothing
+        return current + diff * smoothing
 
     # called every redraw for the mod
-    def draw(self, aircraft, smartdisplay, pos):
+    def draw(self, dataship:Dataship, smartdisplay, pos=(None, None)):
+        x_pos = smartdisplay.x_center
+        y_pos = smartdisplay.y_center
+        if pos[0] is not None:
+            x_pos = pos[0] + self.width / 2  # center the hsi in the middle of this module
+        if pos[1] is not None:
+            y_pos = pos[1] + self.height / 2
 
-        x,y = pos
+        target_heading = self.imuData.yaw
+        if self.imuData.yaw is None and self.gpsData.GndTrack is not None:
+            target_heading = self.gpsData.GndTrack
+        elif self.imuData.yaw is not None:
+            target_heading = self.imuData.yaw
+        else:
+            target_heading = 0
+        
+        # Initialize current_heading if None
+        if self.current_heading is None:
+            self.current_heading = target_heading
 
-        hsi_hdg = aircraft.mag_head
-        gnd_trk = aircraft.gndtrack
-        turn_rate = aircraft.turn_rate
+        # Smooth the heading transition
+        self.current_heading = self.smooth_value(
+            self.current_heading, 
+            target_heading, 
+            self.smoothing_factor
+        )
 
-        hsi_hdg = (hsi_hdg + 90) % 360
-        gnd_trk = roint(hsi_hdg - gnd_trk - 90) % 360
+        gnd_trk = self.gpsData.GndTrack if self.gpsData.GndTrack is not None else 0
+        turn_rate = self.imuData.turn_rate if self.imuData.turn_rate is not None else 0
 
-        # Draw Compass Rose Tick Marks
-        tick_rotated = pygame.transform.rotate(self.rose, hsi_hdg)
+        # Draw Compass Rose Tick Marks using smoothed heading
+        tick_rotated = pygame.transform.rotate(self.rose, self.current_heading)
         tick_rect = tick_rotated.get_rect()
         self.pygamescreen.blit(
             tick_rotated,
-            (smartdisplay.x_center - tick_rect.center[0], smartdisplay.y_center - tick_rect.center[1]),
+            (x_pos - tick_rect.center[0], y_pos - tick_rect.center[1]),
         )
 
-        # Draw Labels
-        global old_hsi_hdg
-        if (
-            old_hsi_hdg != hsi_hdg
-        ):  # Don't waste time recalculating/redrawing until the variable changes
-            labeler(self, hsi_hdg)
+        # Draw Labels using smoothed heading
+        self.labeler(self.current_heading)
         label_rect = self.labels.get_rect()
         self.pygamescreen.blit(
             self.labels,
-            (smartdisplay.x_center - label_rect.center[0], smartdisplay.y_center - label_rect.center[1]),
+            (x_pos - label_rect.center[0], y_pos - label_rect.center[1]),
         )
-        self.old_hsi_hdg = hsi_hdg  # save the last heading.
 
-        # Draw Ticks
-        self.gnd_trk_tick(smartdisplay,gnd_trk)
+        # Draw Heading Indicator Triangle (stationary)
+        self.pygamescreen.blit(self.heading_indicator, 
+                             (x_pos - self.hsi_size / 2, y_pos + 40 - self.hsi_size / 2))
+
+        # Draw ground track and heading labels using target values
+        gnd_trk_label = self.myfont1.render(f"trk:{int(gnd_trk):03d}", False, self.label_color)
+        hdg_label = self.myfont1.render(f"hdg:{target_heading:03.0f}", False, self.label_color)
+        
+        self.pygamescreen.blit(
+            gnd_trk_label,
+            (x_pos - label_rect.center[0], y_pos - label_rect.center[1]),
+        )
+        self.pygamescreen.blit(
+            hdg_label,
+            (x_pos + self.width / 2 - (label_rect.center[0] / 2), 
+             y_pos - label_rect.center[1]),
+        )
 
         # Draw Turn Rate
-        self.turn_rate_disp(smartdisplay,urn_rate)
+        self.turn_rate_disp(smartdisplay, turn_rate, pos)
 
 
     # called before screen draw.  To clear the screen to your favorite color.
@@ -284,6 +367,32 @@ class HSI(Module):
     # handle key events
     def processEvent(self, event):
         print("processEvent")
+    
+    def get_module_options(self):
+        return {
+            "hsi_size": {
+                "type": "int",
+                "default": self.hsi_size,
+                "min": -1,
+                "max": 300,
+                "label": "HSI Size",
+                "description": "Size of the HSI.",
+            },
+            "smoothing_factor": {
+                "type": "float",
+                "default": 0.15,
+                "min": 0.0,
+                "max": 0.95,
+                "label": "Smoothing Factor",
+                "description": "Heading rotation smoothing (0=none, 0.95=max)",
+            }
+        }
 
 
 # vi: modeline tabstop=8 expandtab shiftwidth=4 softtabstop=4 syntax=python
+
+
+
+
+
+
