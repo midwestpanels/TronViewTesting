@@ -9,8 +9,8 @@
 # 11/6/2024  Added IMU data.
 # 02/09/2025 DataShip refactor. Topher
 # 11/15/2026 Line-based framing with checksum validation, underscore (invalid) field
-#            handling, binary playback, and parse errors no longer stop TronView.
-#            Modeled on the IntelliKeyNGv2 ESP32 G3X decoder.
+#            handling, binary playback, and parse errors no longer stop TronView. A.O.
+#
 #
 # Format: G3X/G3X Touch Avionics Installation Manual 190-01115-01 Appendix C.
 # Sentences start with '=' (or '@' for GPS PVT), are fixed width per sentence ID and end
@@ -492,13 +492,6 @@ class serial_g3x(Input):
                 self.gpsData.GndSpeed = GroundSpeed * 0.115078 # convert knots to mph * 0.1
         self.gpsData.msg_count += 1
         self._log(raw)
-
-    # =3 Engine Data is not parsed yet (needs testing). Note from the IntelliKeyNGv2 decoder:
-    # on a TWIN this sentence alternates between engines with no engine identifier, so its
-    # per-engine fields can't be attributed; =5 (EIS) is the authority for per-engine data.
-    # Table C-3 offsets (from line start): oil press 11, oil temp 14, RPM 18, MAP 26,
-    # fuel flow 29, fuel press 35, fuel qty 38/41, calc fuel 44, volts 47/50, amps 53,
-    # airframe hours 57 (w5), engine hours 62 (w5), then CHT6/EGT6/CHT5/EGT5... from 67 in steps of 4.
 
 
 # vi: modeline tabstop=8 expandtab shiftwidth=4 softtabstop=4 syntax=python
