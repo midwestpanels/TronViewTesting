@@ -37,6 +37,26 @@ port = /tmp/tronview_g3x
 
 Then run TronView with `-i serial_g3x` in a second terminal. The symlink is removed when the replay stops.
 
+## Several readers at once
+
+A serial port (real or virtual) delivers each byte to only one reader. If two scripts open the
+same port, each gets roughly half the sentences. Instead, give each reader its own port. One
+replay fans the identical stream out to all of them, in sync:
+
+```bash
+# three virtual ports: /tmp/tronview_g3x, /tmp/tronview_g3x_2, /tmp/tronview_g3x_3
+python3 util/flightlog_replay.py log.csv --readers 3
+
+# or name them, and mix in a real port and a capture file
+python3 util/flightlog_replay.py log.csv --virtual /tmp/tronview --virtual /tmp/my_logger \
+    --port /dev/tty.usbserial-XXXX --out run1.dat
+```
+
+You can also run separate replays side by side, for example a G3X log and an AXIS log, as long as
+each uses its own `--virtual` path. A replay writes `LINK.pid` next to its link and refuses to
+take over a link that another running replay owns. A link left behind by a crashed replay is
+reclaimed automatically.
+
 ## Real serial port (e.g. to a Pi running TronView)
 
 ```bash

@@ -16,11 +16,13 @@ input parses:
 Rates and sentence order match a real G3X capture (lib/inputs/_example_data/g3x_1.dat).
 Format reference: G3X/G3X Touch Avionics Installation Manual 190-01115-01 Appendix C.
 
-Output goes to one of:
+Outputs (combine and repeat as needed; every output gets the identical stream):
     --port /dev/tty.usbserial-XXXX     a real serial port (needs pyserial), e.g. to a Pi
     --virtual [LINK]                   a virtual serial port (pty) on this machine; point
                                        TronView's [serial_g3x] port at LINK
                                        (default /tmp/tronview_g3x). macOS / Linux only.
+                                       Repeat it (or use --readers N) to give each reading
+                                       script its own port; all get the identical stream.
     --out FILE                         a capture file TronView can play back with -c
     --stdout                           print the sentences (debugging)
 
@@ -28,6 +30,8 @@ Examples:
     python3 util/flightlog_replay.py log_20251114_090719_Y83.csv --virtual
     python3 util/flightlog_replay.py aircraft-log-N915MW.csv --port /dev/tty.usbserial-A10 --start takeoff --speed 2
     python3 util/flightlog_replay.py log.csv --out flightlog/n915mw_g3x.dat
+    python3 util/flightlog_replay.py log.csv --readers 3      # /tmp/tronview_g3x, _2, _3
+    python3 util/flightlog_replay.py log.csv --virtual /tmp/tv --virtual /tmp/logger --port /dev/ttyUSB0
 """
 
 import argparse
@@ -40,6 +44,7 @@ import signal
 import sys
 import time
 
+DEFAULT_LINK = "/tmp/tronview_g3x"
 KT_TO_MS = 0.514444
 FT_TO_M = 0.3048
 
@@ -482,6 +487,17 @@ class SerialSink:
         self.ser.close()
 
 
+def _live_pid(pidfile):
+    """pid from a replay's pid file if that process is still running, else None."""
+    try:
+        with open(pidfile) as f:
+            pid = int(f.read().strip())
+        os.kill(pid, 0)
+        return pid
+    except (OSError, ValueError):
+        return None
+
+
 class VirtualSink:
     """pty pair. TronView opens the slave side (or the symlink) as its serial port."""
     realtime = True
@@ -495,13 +511,21 @@ class VirtualSink:
         os.set_blocking(self.master, False)
         self.name = os.ttyname(self.slave)
         self.link = None
+        self.pidfile = None
         if link:
+            pidfile = link + ".pid"
             if os.path.lexists(link):
                 if not os.path.islink(link):
                     sys.exit("%s exists and is not a symlink; pick another --virtual path" % link)
-                os.unlink(link)
+                other = _live_pid(pidfile)
+                if other:
+                    sys.exit("%s is in use by another replay (pid %d); pick another --virtual path"
+                             % (link, other))
+                os.unlink(link)  # stale link from a replay that didn't clean up
             os.symlink(self.name, link)
-            self.link = link
+            with open(pidfile, "w") as f:
+                f.write(str(os.getpid()))
+            self.link, self.pidfile = link, pidfile
         self.desc = "virtual serial port %s%s" % (self.name, (" (linked as %s)" % link) if link else "")
         self.dropped = 0
 
@@ -518,8 +542,11 @@ class VirtualSink:
                 self.dropped += 1
 
     def close(self):
-        if self.link and os.path.islink(self.link):
-            os.unlink(self.link)
+        # only remove the link if it's still ours (not taken over after a stale-link cleanup)
+        if self.link and _live_pid(self.pidfile) == os.getpid():
+            if os.path.islink(self.link):
+                os.unlink(self.link)
+            os.unlink(self.pidfile)
         os.close(self.master)
         os.close(self.slave)
 
@@ -536,6 +563,26 @@ class FileSink:
 
     def close(self):
         self.f.close()
+
+
+class MultiSink:
+    """Fans one sentence stream out to every output, so several readers see identical data."""
+
+    def __init__(self, sinks):
+        self.sinks = sinks
+        self.realtime = any(s.realtime for s in sinks)
+        self.has_stdout = any(isinstance(s, StdoutSink) for s in sinks)
+
+    def write(self, data):
+        for s in self.sinks:
+            s.write(data)
+
+    def close(self):
+        for s in self.sinks:
+            try:
+                s.close()
+            except Exception as e:
+                print("error closing %s: %s" % (s.desc, e), file=sys.stderr)
 
 
 class StdoutSink:
@@ -607,7 +654,7 @@ def replay(log, tracks, sink, args, t_start, t_end):
     step = 1.0 / args.rate
     att2_every = max(1, int(round(args.rate / 2.0)))  # =2 at ~2 Hz
     realtime = sink.realtime and not args.fast
-    status = sys.stderr.isatty() and not isinstance(sink, StdoutSink)
+    status = sys.stderr.isatty() and not sink.has_stdout
     passes = 0
     while True:
         n_ticks = int(math.floor((t_end - t_start) / step)) + 1
@@ -655,12 +702,17 @@ def main():
         description="Replay a Garmin G3X or AXIS flight log as G3X serial output for TronView.",
         formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__.split("Examples:")[1])
     ap.add_argument("log", help="G3X data_log CSV or AXIS aircraft-log CSV")
-    dst = ap.add_mutually_exclusive_group(required=True)
-    dst.add_argument("--port", help="real serial port to write to (e.g. /dev/tty.usbserial-XXXX, COM3)")
-    dst.add_argument("--virtual", nargs="?", const="/tmp/tronview_g3x", metavar="LINK",
+    dst = ap.add_argument_group("outputs (combine and repeat freely; every output gets the same stream)")
+    dst.add_argument("--port", action="append", default=[], metavar="PORT",
+                     help="real serial port to write to (e.g. /dev/tty.usbserial-XXXX, COM3)")
+    dst.add_argument("--virtual", action="append", nargs="?", const=DEFAULT_LINK, default=[], metavar="LINK",
                      help="create a virtual serial port (pty) and symlink it at LINK "
-                          "(default /tmp/tronview_g3x). Set [serial_g3x] port = LINK in config.cfg")
-    dst.add_argument("--out", metavar="FILE", help="write a G3X capture file (for TronView -c playback)")
+                          "(default %s). Set [serial_g3x] port = LINK in config.cfg. "
+                          "Repeat for one port per reader script" % DEFAULT_LINK)
+    dst.add_argument("--readers", type=int, default=0, metavar="N",
+                     help="shortcut: N virtual ports at %s, %s_2 ... %s_N" % ((DEFAULT_LINK,) * 3))
+    dst.add_argument("--out", action="append", default=[], metavar="FILE",
+                     help="write a G3X capture file (for TronView -c playback)")
     dst.add_argument("--stdout", action="store_true", help="print sentences to the terminal")
     ap.add_argument("--baud", type=int, default=115200, help="baud for --port (default 115200)")
     ap.add_argument("--rate", type=float, default=10.0, help="=1 sentence rate in Hz (default 10)")
@@ -707,22 +759,42 @@ def main():
     if log.missing:
         print("not in this log (sent as invalid): " + ", ".join(log.missing), file=sys.stderr)
 
-    if args.port:
-        sink = SerialSink(args.port, args.baud)
-    elif args.virtual:
-        if os.name == "nt":
-            sys.exit("--virtual needs macOS/Linux. On Windows use a com0com pair with --port.")
-        sink = VirtualSink(args.virtual)
-    elif args.out:
-        sink = FileSink(args.out)
-    else:
-        sink = StdoutSink()
-    print("output: " + sink.desc, file=sys.stderr)
-    if isinstance(sink, VirtualSink):
+    links = list(args.virtual)
+    if args.readers > 0:
+        base = links.pop(0) if links else DEFAULT_LINK
+        links = [base] + ["%s_%d" % (base, i) for i in range(2, args.readers + 1)] + links
+    if len(set(links)) != len(links):
+        ap.error("each --virtual port needs its own LINK path (one reader per port)")
+    if links and os.name == "nt":
+        sys.exit("--virtual needs macOS/Linux. On Windows use a com0com pair with --port.")
+    if args.loop and args.out:
+        ap.error("--loop makes no sense with --out")
+
+    sinks = []
+    try:
+        sinks += [SerialSink(p, args.baud) for p in args.port]
+        for link in links:
+            sinks.append(VirtualSink(link))
+        sinks += [FileSink(p) for p in args.out]
+    except BaseException:
+        for s in sinks:
+            s.close()
+        raise
+    if args.stdout:
+        sinks.append(StdoutSink())
+    if not sinks:
+        ap.error("pick at least one output: --port, --virtual, --readers, --out or --stdout")
+    if args.out and len(sinks) > 1:
+        print("note: --out is paced in real time when combined with live outputs", file=sys.stderr)
+    for s in sinks:
+        print("output: " + s.desc, file=sys.stderr)
+    vports = [s for s in sinks if isinstance(s, VirtualSink)]
+    if vports:
         print("TronView: set  [serial_g3x] port = %s  in config.cfg, then run with -i serial_g3x"
-              % (sink.link or sink.name), file=sys.stderr)
-    if isinstance(sink, FileSink) and args.loop:
-        sys.exit("--loop makes no sense with --out")
+              % (vports[0].link or vports[0].name), file=sys.stderr)
+        if len(vports) > 1:
+            print("other readers: " + ", ".join(v.link or v.name for v in vports[1:]), file=sys.stderr)
+    sink = MultiSink(sinks)
 
     def _stop(signum, frame):
         raise KeyboardInterrupt
