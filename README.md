@@ -117,6 +117,8 @@ Config example:  [config_example.cfg](config_example.cfg)
 
 Lots of different efis test data: [Test Data](docs/efis_data.MD)
 
+Data points you can show in editor text objects: [Text Data Points](docs/text_data_points.md)
+
 IncludesF-18 style HUD screen: [screen_F18.MD](docs/screen_F18.MD)
 
 # Join our Discord server

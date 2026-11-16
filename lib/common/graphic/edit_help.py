@@ -55,9 +55,15 @@ def show_help_dialog(pygame_gui_manager):
     :c - Convert Fahrenheit to Celsius
     :f - Display as Fahrenheit (no conversion)
     :10th - Round to nearest 10 (101 becomes 100, 155 becomes 160)
-    
+
+    Add precision after the unit with another colon:
+    :kts:1 - knots with 1 decimal place
+    :kts:0.2f - knots with any Python format spec
+    :kts%0.1f - knots, using the % precision style
+
     Advanced Examples:
     {{airData[0].IAS:kts}} - convert MPH to knots
+    {{airData[0].IAS:kts:1}} - knots, 1 decimal place
     {{gpsData[0].altitude():ft}} - convert meters to feet
     """
 

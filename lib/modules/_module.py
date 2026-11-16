@@ -235,43 +235,44 @@ class Module:
             obj = final_value
         return obj
 
+    # Unit conversions for special format specifiers.
+    # name: (conversion function, default python format spec)
+    # Internal units: speed = mph, distance = miles, altitude = feet, temp = fahrenheit.
+    UNIT_CONVERSIONS = {
+        "kts":  (lambda v: v * 0.868976,       "0.0f"),  # mph -> knots
+        "kph":  (lambda v: v * 1.60934,        "0.0f"),  # mph -> km/h
+        "mph":  (lambda v: v,                  "0.0f"),  # already mph
+        "km":   (lambda v: v * 1.60934,        "0.1f"),  # miles -> kilometers
+        "nm":   (lambda v: v * 0.868976,       "0.1f"),  # statute miles -> nautical miles
+        "ft":   (lambda v: v,                  "0.1f"),  # already feet
+        "m":    (lambda v: v * 0.3048,         "0.1f"),  # feet -> meters
+        "c":    (lambda v: (v - 32) * 5 / 9,   "0.1f"),  # fahrenheit -> celsius
+        "f":    (lambda v: v,                  "0.1f"),  # already fahrenheit
+        "10th": (lambda v: round(v / 10) * 10, "0.0f"),  # round to nearest 10
+    }
+
     def special_format_specifier(self, theVariable: str, format_specifier: str, dataship: Dataship):
         """
         Handle special format specifiers.
+        A unit can optionally be followed by a precision / python format spec:
+            kts       -> knots, default precision (0 decimals)
+            kts:1     -> knots, 1 decimal place
+            kts:0.2f  -> knots, any python format spec
+        Anything that isn't a known unit is treated as a plain python format spec.
         """
-        if format_specifier == "kts":
-            # convert mph to knots.
-            return f"{theVariable * 0.868976:0.0f}"
-        elif format_specifier == "kph":
-            # convert mph to kph. (kilometers per hour)
-            return f"{theVariable * 1.60934:0.0f}"
-        elif format_specifier == "mph":
-            # convert mph .. it's already in mph.
-            return f"{theVariable:0.0f}"
-        elif format_specifier == "km":
-            # convert miles to kilometers.
-            return f"{theVariable * 1.60934:0.1f}"
-        elif format_specifier == "nm":
-            # convert miles to nautical miles.
-            return f"{theVariable * 1.852:0.1f}"
-        elif format_specifier == "ft":
-            # it's already in feet.
-            return f"{theVariable:0.1f}"
-        elif format_specifier == "m":
-            # convert feet to meters.
-            return f"{theVariable * 0.3048:0.1f}"
-        elif format_specifier == "c":
-            # convert fahrenheit to celsius.
-            return f"{((theVariable - 32) * 5/9):0.1f}"
-        elif format_specifier == "f":
-            # it's already in fahrenheit.
-            return f"{theVariable:0.1f}"
-        elif format_specifier == "10th":
-            # round to the nearest 10.
-            return f"{round(theVariable / 10) * 10:0.0f}"
-        else:
+        unit, _, precision = format_specifier.partition(":")
+        if unit not in self.UNIT_CONVERSIONS:
             # else just use the built in python format specifier.
             return f"{theVariable:{format_specifier}}"
+
+        convert, default_spec = self.UNIT_CONVERSIONS[unit]
+        if not precision:
+            spec = default_spec
+        elif precision.isdigit():
+            spec = f"0.{precision}f"  # bare number = number of decimal places
+        else:
+            spec = precision
+        return f"{convert(theVariable):{spec}}"
 
     def parse_text(self, inputText: str, dataship: Dataship):
         """
@@ -290,7 +291,10 @@ class Module:
         examples:
         {gpsData.latitude}
         {gpsData.latitude:0.2f} # format to 2 decimal places
-        {airData[0].IAS:kts}
+        {airData[0].IAS:kts}      # convert mph to knots
+        {airData[0].IAS:kts:1}    # knots with 1 decimal place
+        {airData[0].IAS:kts:0.2f} # knots with any python format spec
+        {airData[0].IAS:kts%0.1f} # knots, legacy % precision (also {IAS%0.1f:kts})
         """
         result = inputText
         # Find all variables enclosed in curly braces
@@ -304,14 +308,22 @@ class Module:
                 break
                 
             variable_name = result[open_brace + 1:close_brace]
+            format_specifier = None
+            special_format_specifier = None
+            # %spec (legacy precision) can be combined with a :unit in either order:
+            #   {IAS%0.1f}  {IAS:kts%0.1f}  {IAS%0.1f:kts}
             if "%" in variable_name:
-                variable_name, format_specifier = variable_name.split("%")
-            elif ":" in variable_name:
-                variable_name, special_format_specifier = variable_name.split(":")
+                variable_name, format_specifier = variable_name.split("%", 1)
+                if ":" in format_specifier:
+                    format_specifier, special_format_specifier = format_specifier.split(":", 1)
+            if ":" in variable_name:
+                variable_name, special_format_specifier = variable_name.split(":", 1)
+            if special_format_specifier and format_specifier:
+                # unit with a % precision -> pass precision through to the unit
+                # (an explicit :unit:precision takes priority over the %)
+                if ":" not in special_format_specifier:
+                    special_format_specifier = f"{special_format_specifier}:{format_specifier}"
                 format_specifier = None
-            else:
-                format_specifier = None
-                special_format_specifier = None
 
             try:
                 if variable_name == "self":
