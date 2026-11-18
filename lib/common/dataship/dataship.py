@@ -10,6 +10,7 @@ from lib.common.dataship.dataship_targets import TargetData
 from lib.common.dataship.dataship_engine_fuel import EngineData, FuelData
 from lib.common.dataship.dataship_nav import NavData
 from lib.common.dataship.dataship_analog import AnalogData
+from lib.common.dataship.dataship_vehicle import VehicleData
 from lib.common.graphic.edit_dropdown import menu_item
 
 class Interface(Enum):
@@ -39,6 +40,7 @@ class Dataship(object):
         self.targetData: List[TargetData] = [] # list of Target objects
         self.navData: List[NavData] = [] # list of Nav objects
         self.analogData: List[AnalogData] = [] # list of Analog objects
+        self.vehicleData: List[VehicleData] = [] # list of ground vehicle (car) objects
         
         self.debug_mode = 0
         self.errorFoundNeedToExit = False

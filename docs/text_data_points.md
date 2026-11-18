@@ -232,6 +232,36 @@ Use `getNearestTarget()` or `get_selected_target()` in place of `targets[0]` to 
 | `{analogData[0].Data[0]}` … `{analogData[0].Data[7]}` | Channel values |
 | `{analogData[0].Min}` / `{analogData[0].Max}` | Configured min / max |
 
+## Vehicle (car) — `vehicleData[n]`
+
+From the `tesla_wifi` input. Speeds are in **mph** (use `:kph` to convert). A value is `None` until the car sends it.
+
+| Data point | Description |
+|---|---|
+| `{vehicleData[0].Speed}` | Vehicle speed (mph) |
+| `{vehicleData[0].SpeedDisplayed}` | Speed exactly as the car's screen shows it, in `SpeedUnits` |
+| `{vehicleData[0].SpeedUnits}` | `mph` or `kph` (the car's display setting) |
+| `{vehicleData[0].Gear}` | `P`, `R`, `N`, `D` |
+| `{vehicleData[0].AccelPedal}` | Accelerator pedal (0–100 %) |
+| `{vehicleData[0].BrakePedal}` | `True` while braking |
+| `{vehicleData[0].SteeringAngle}` | Steering wheel angle (deg) |
+| `{vehicleData[0].BlinkerLeft}` / `{vehicleData[0].BlinkerRight}` | `True` while that turn signal is lit |
+| `{vehicleData[0].AutopilotStateName}` | `DISABLED`, `UNAVAILABLE`, `AVAILABLE`, `ACTIVE_NOMINAL`, `ACTIVE_RESTRICTED`, `ACTIVE_NAV`, `ACTIVE_FSD`, `ABORTING`, `ABORTED`, `FAULT` |
+| `{vehicleData[0].AutopilotState}` | Same as a number (3–6 = active) |
+| `{vehicleData[0].AutopilotActive}` | `True` while Autosteer / Nav / FSD is steering |
+| `{vehicleData[0].AutopilotHandsOn}` | Hands-on request: `NOT_REQD`, `REQD_DETECTED`, `REQD_NOT_DETECTED`, `REQD_VISUAL`, `REQD_CHIME_1`, … |
+| `{vehicleData[0].CruiseState}` | `UNAVAILABLE`, `STANDBY`, `ENABLED`, `STANDSTILL`, `OVERRIDE`, `FAULT`, … |
+| `{vehicleData[0].CruiseActive}` | `True` while cruise (TACC) is controlling speed |
+| `{vehicleData[0].CruiseSetSpeed}` | Cruise set speed (mph) |
+| `{vehicleData[0].SpeedLimit}` | Detected speed limit, in `SpeedUnits` |
+| `{vehicleData[0].AutoLaneChangeState}` | Auto lane change state number |
+| `{vehicleData[0].BlindSpotLeft}` / `{vehicleData[0].BlindSpotRight}` | 0 = clear, 1 = vehicle in blind spot, 2 = vehicle in blind spot and warning |
+| `{vehicleData[0].LaneDeparture}` | `NONE`, `LEFT_WARNING`, `RIGHT_WARNING`, `LEFT_WARNING_SEVERE`, `RIGHT_WARNING_SEVERE` |
+| `{vehicleData[0].SideCollision}` | `NONE`, `WARN_LEFT`, `WARN_RIGHT`, `WARN_LEFT_RIGHT` |
+| `{vehicleData[0].ForwardCollision}` | `True` during a forward collision warning |
+| `{vehicleData[0].connected}` | `True` while CAN data is arriving |
+| `{vehicleData[0].hz}` | Decoded frames per second |
+
 ## System — `internalData`
 
 Not a list, so there's no `[0]`.

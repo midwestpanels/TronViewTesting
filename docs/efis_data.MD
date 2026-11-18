@@ -69,6 +69,20 @@
 
   Playback: any recording of the raw wire bytes plays back with `--in1 serial_onspeedaoa -e --playfile1 FILE.dat` — TronView's own data recorder writes one while flying, or capture the UART with any serial logger.
 
+# Tesla Data (Enhance Auto Commander)
+
+  The `tesla_wifi` input reads a Tesla Model 3 / Y CAN bus over WiFi from an Enhance Auto S3XY Commander (or a CANserver), using the same "panda" UDP protocol ScanMyTesla uses. It fills `vehicleData[0]` with speed, gear, Autopilot / cruise state, blind spot warnings, turn signals and more. See `docs/text_data_points.md` for every field.
+
+  Setup: in the Commander app enable ScanMyTesla support, join the Commander's `S3XY_OBD` WiFi network, then run `python3 main.py --in1 tesla_wifi`. The defaults (`192.168.4.1`, UDP port `1338`) match the Commander; change them under `[tesla_wifi]` in config.cfg if needed.
+
+  Signals are decoded from the opendbc Tesla Model 3 DBC: https://github.com/commaai/opendbc/blob/master/opendbc/dbc/tesla_model3_party.dbc
+
+  Recording writes a candump style `.log` (`(time) can0 39B#...`), which also opens in SavvyCAN, cantools and python-can.
+
+  `tesla_simulated_1.log` is a made-up 60 second drive (not recorded from a car): accelerate, engage Autopilot, a car through each blind spot, a signalled lane change, Autopilot off, park. Play it with `python3 main.py --in1 tesla_wifi -e`.
+
+  No car handy? `python3 util/tesla_panda_sim.py` pretends to be a Commander on 127.0.0.1:1338 (set `host = 127.0.0.1` under `[tesla_wifi]`).
+
 # Stratux Data
 
   Recorded data for stratux is saved in the example data.  stratux_1.dat shows traffic near by.  Like 0.5 miles away.
